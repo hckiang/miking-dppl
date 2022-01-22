@@ -1,88 +1,160 @@
-/**  Constant-rate birth-death model */
-
-/**  Phylogenetic tree */
-// types, Section 0.4
-type tree =
-    | Leaf(age: float, index: int)
-    | Node(age: float, left: tree, right: tree)
-
-  
-/**  Simulates side branches under the CRBD model
- *  
- * The following is a function that simulates the hidden
- * (extinct or undetected) evolutionary side-branches under
- * the CRBD model.
- * 
- * functions, see Section 0.2
- * 
- * In particular, it is clear that the return type of this
- * function is unit, as no explicit return specified and
- * it is a sequence of statements rather than a simple expression.
+#!/usr/bin/treeppl
+/* Shebang should "just work!" Just make "#!" an comment char..
+   Constant-rate birth-death model
  */
-simulate_side_branch = (start_time: float, λ: float, μ: float): () => {
-    t ~ Exponential(rate=λ + μ) // sampling, section 1.2
-    current_time = start_time - t // expressions, Section 0.1
-    if (current_time < 0) { // conditionals, Section 0.5
-        factor(-∞)
-    } else {
-        s ~ Bernoulli(λ/(λ + μ)) // positional invocation
-        if (s) {
-            simulate_side_branch(current_time, λ, μ) 
-            simulate_side_branch(current_time, λ, μ)
-        }
-    }   
+
+/* Phylogenetic tree should be a built-in type!!
+   But internally it should be declared like this:
+type tree {
+	| leaf(double age, int index);
+	| node(double age, tree[] children);
+};
+*/
+
+/* Simulates side branches under the CRBD model */
+void simulate_side_branch(double start_time, par double lambda, par double mu) {
+	double t ~ Exponential(rate = lambda + mu);  /* "double" is optional */
+	current_time = start_time - t;
+	if (current_time < 0)    /* C-style bracket omitting. */
+		factor(-Inf);    /* I guess factor(-Inf) means "lik *= 0" */
+	else {
+		s ~ Bernoulli(lambda/(lambda + mu));
+		if (s) {
+			simulate_side_branch(current_time, lambda, mu);
+			simulate_side_branch(current_time, lambda, mu);
+		}
+	}
+}
+
+/* 1. If something is actually C's "double precision" then name the type
+      "double". The tech-savvy will understand immediately and the novices
+      will be told this "just means numbers."
+   2. "tree" is a built-in type.
+   3. "child" and "parent" are not declared "data", but you can pass "data"
+      to it. "hpar" behaves similarly. But "par" must be declared like this
+      in the function declaration.
+ */
+void simulate_tree (tree node, par double lambda, par double mu) {
+	#resample
+
+	/* The underlying data structure of the trees can even be a sparse matrix
+	   or something fancy, but it's a HUGE convenience feature to be able to
+	   get "node.parent" */
+	tree parent = node.parent();
+
+	if (node.children.len() != 2) goto FREAKOUT;
+	if (node.age <= 0.0)          goto FREAKOUT;
+
+	// The language supports node.branch_len which is the same as
+	// parent.age - node.age so no need to pass around "tree parent"
+	// sometimes.
+	int k ~ Poisson(lambda * node.branch_len()); /* "int" is optional */
+
+	// Conventional enough so the C/C++/Java programmers can do without
+	// thinking.
+	for (int i=0; i<k, ++i) {
+	    t ~ Uniform(l=node.age, u=parent.age);
+	    simulate_side_branch(t, lambda, mu);
+	    factor(log(2));
+	}
+
+	// "observe" keyword isn't needed, is it? Or maybe I'm missing
+	// something?
+	0 ~ Poisson(mu * node.branch_len());
+
+	// Typical functional programming style pattern matching
+	switch (node) {
+	    node => {
+		0 ~ Exponential(lambda)
+		for (p in node.children)              // Type of p inferred.
+			simulate_tree(p, lambda, mu);
+	    }
+	}
+	return; // Optional
+FREAKOUT:
+	panic("Ouch!" .. ' Something is wrong.');
 }
 
 
-
-simulate_tree = (child: tree, parent: tree, λ: float, μ: float) => {
-    #resample
-
-    // k is the number of hidden speciation events
-    k ~ Poisson(λ*(parent.age - child.age))
-
-    // loops, Section 0.6
-    // here, we don't have an index i
-    // <=> for (i in 1 to k)
-    for (1 to k) {
-        t ~ Uniform(l=child.age, u=parent.age)
-        simulate_side_branch(t, λ, μ)
-        factor(log(2))
-    }
-
-    // Observe Section 1.2
-    // 0 extinctions events along the branch
-    observe 0 ~ Poisson(μ*(parent.age - child.age))
-
-    // pattern matching, Section 0.6
-    switch (child) {
-        | Node => {
-            observe 0 ~ Exponential(λ)
-            simulate_tree(child.left, child, λ, μ)
-            simulate_tree(child.right, child, λ, μ)
-        }
-    }
-    
-    return ()
-}
-
-/** Model 
+/* Model 
  * 
- * Every program has a model function, see Section 1.4.
- * */ 
-model = (k_λ = 1, θ_λ = 0.2, k_μ = 1, θ_μ = 0.1, data: json) => {
-    observation: tree = Node(13.016,
-        Node(10.626,Node(8.352,Node(7.679,Node(5.187,Leaf(0,7),Leaf(0,22)),Node(5.196,Leaf(0,2),Node(4.871,Node(2.601,Leaf(0,31),Leaf(0,14)),Leaf(0,26)))),Node(7.361,Node(3.818,Node(1.143,Node(0.829,Leaf(0,6),Leaf(0,9)),Leaf(0,16)),Node(1.813,Node(0.452,Node(0.203,Leaf(0,15),Leaf(0,12)),Leaf(0,8)),Leaf(0,32))),Node(1.868,Node(0.866,Leaf(0,23),Node(0.001,Leaf(0,17),Leaf(0,24))),Node(1.06,Leaf(0,18),Leaf(0,4))))),Node(10.536,Node(8.291,Node(1.396,Node(0.215,Leaf(0,10),Leaf(0,29)),Leaf(0,21)),Leaf(0,27)),Node(8.192,Node(0.56,Leaf(0,11),Leaf(0,19)),Leaf(0,3)))),
-        Node(8.958,Node(3.748,Leaf(0,5),Node(0.033,Leaf(0,20),Leaf(0,1))),Node(7.775,Node(0.584,Leaf(0,28),Leaf(0,13)),Node(1.589,Leaf(0,25),Leaf(0,30))))
-    )
+ * Every program has one or more model function. A model function is just
+ * a function that returns a parspace type.
+ *
+ * Run the simulations by invoking from Bash:
+ *
+ *      treeppl model_one --k_λ=3.14159 --treefile=mytree.newick --output-dir=./OUTPUT_ONE/
+ *      treeppl model_two --θ_λ=2.0 --treefile=mytree.json --output-dir=./OUTPUT_TWO/
+ *
+ * Run the simulations multiple times with different hyperparams:
+ *
+ *      treeppl model_one --k_μ=0.1,1,10 --treefile=mytree.json --output-dir=./OUTPUT_TWO/
+ *
+ * Run the simulations four times:
+ *
+ *      treeppl model_one --k_μ=0.1,1 --treefile=mytree.json,another_tree.json \
+ *         --output-dir=./OUTPUT_TWO/
+ * 
+ * */
 
-    // TODO implement phyjson2tree
-    // observation = phyjson2tree(data)
 
-    λ ~ Gamma(k_λ, θ_λ)
-    μ ~ Gamma(k_μ, θ_μ)
+/* A type declaration for the parameter space. */
+parspace birthdeath {
+	double λ;
+	double μ;
+} subject to {
+	λ > 0;
+	μ > 0;
+};
 
-    simulate_tree(observation.left, observation, λ, μ)
-    simulate_tree(observation.right, observation, λ, μ)
-    return (λ, μ)
+/* Any function that returns a "parspace" object is a "model." */
+parspace birthdeath model_one(hpar double k_λ      = 1,
+	                      hpar double θ_λ      = .200,
+	                      hpar double k_μ      = 1,
+	                      hpar double θ_μ      = 0.1,
+	                      data file   treefile) { // "data" is a keyword, "file" is type
+	data tree observation = node(13.016,
+	    node(10.626,node(8.352,node(7.679,node(5.187,leaf(0,7),leaf(0,22)),node(5.196,leaf(0,2),node(4.871,node(2.601,leaf(0,31),leaf(0,14)),leaf(0,26)))),node(7.361,node(3.818,node(1.143,node(0.829,leaf(0,6),leaf(0,9)),leaf(0,16)),node(1.813,node(0.452,node(0.203,leaf(0,15),leaf(0,12)),leaf(0,8)),leaf(0,32))),node(1.868,node(0.866,leaf(0,23),node(0.001,leaf(0,17),leaf(0,24))),node(1.06,leaf(0,18),leaf(0,4))))),node(10.536,node(8.291,node(1.396,node(0.215,leaf(0,10),leaf(0,29)),leaf(0,21)),leaf(0,27)),node(8.192,node(0.56,leaf(0,11),leaf(0,19)),leaf(0,3)))),
+	    node(8.958,node(3.748,leaf(0,5),node(0.033,leaf(0,20),leaf(0,1))),node(7.775,node(0.584,leaf(0,28),leaf(0,13)),node(1.589,leaf(0,25),leaf(0,30))))
+	);
+	// The "par" keyword will follow them forever, similar to C's "const"
+	par λ ~ Gamma(k_λ, θ_λ);
+	par μ ~ Gamma(k_μ, θ_μ);
+
+	for (p in observation.children)              // Type of p inferred.
+		simulate_tree(p, λ, μ);
+
+	// Compiler complains unless both λ and μ has "par" keywords
+	return birthdeath(λ=λ, μ=μ);
 }
+
+
+/* It's a HUGE convenience if I can put two models in the same file,
+   re-using all shared stuff, and choose which one to run from command
+   line.
+ */
+parspace birthdeath model_two(hpar double k_λ      = 1,
+	                      hpar double θ_λ      = .200,
+	                      hpar double μ_μ      = 1,
+	                      hpar double θ_μ      = 0.1,
+	                      data file   treefile) { // "data" is a keyword, "file" is type
+	tree observation = read_tree(json=treefile)
+	par λ ~ Gamma(k_λ, θ_λ);
+	par μ ~ Gaussian(μ_μ, θ_μ); // Throw error!!
+	for (p in observation.children)
+		simulate_tree(p, λ, μ);
+	return birthdeath(λ=λ, μ=μ);
+}
+
+
+/* Print posterior at an arbritrary parameter.
+   
+   From Bash:
+       treeppl print_two_times_posterior
+ */
+void print_two_times_posterior() {
+	parspace birthdeath mypar = birthdeath(λ=2, μ=5e-1);
+	double p = 2 * posterior(mypar, model_one, treefile='sometree.json');
+	printf("%f\n", p);
+}
+

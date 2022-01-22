@@ -65,7 +65,7 @@ void simulate_tree (tree node, par double lambda, par double mu) {
 	// Typical functional programming style pattern matching
 	switch (node) {
 	    node => {
-		0 ~ Exponential(lambda)
+		0 ~ Exponential(lambda);
 		for (p in node.children)              // Type of p inferred.
 			simulate_tree(p, lambda, mu);
 	    }
@@ -138,7 +138,7 @@ parspace birthdeath model_two(hpar double k_λ      = 1,
 	                      hpar double μ_μ      = 1,
 	                      hpar double θ_μ      = 0.1,
 	                      data file   treefile) { // "data" is a keyword, "file" is type
-	tree observation = read_tree(json=treefile)
+	tree observation = read_tree(json=treefile);
 	par λ ~ Gamma(k_λ, θ_λ);
 	par μ ~ Gaussian(μ_μ, θ_μ); // Throw error!!
 	for (p in observation.children)
